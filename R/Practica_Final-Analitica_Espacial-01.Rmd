@@ -1,0 +1,304 @@
+---
+title: "Location Analitycs - Caso Practico Final"
+author: "Rubén"
+date: '2022-03-13'
+output: 
+  html_document: 
+    df_print: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require("knitr")
+opts_knit$set(root.dir = "C:/Users/0016571/Documents/RGA_Profresional/Master BigData - BAnalytics/Ejercicios/Modulo9/CasoPractico_05/RSpatialTutorial")
+
+```
+
+## Location Analitycs - Caso Practico Final
+
+Se dispone del fichero /data/LondonCustomer.csv (también incluido en RSpatialTutorial.rar) con la siguiente información, correspondiente a la clientela de Londres de un banco:
+
+-   CONTACT_ID: código de cliente.
+-   AGE: edad.
+-   FAMILYSIZE: unidad familiar.
+-   YEAREXPERIENCE: años de experiencia.
+-   ANNUALINCOME: ingresos anuales.
+-   EDUCATIONLEVEL_ID: estudios.
+-   NETPRICE_PRO11_AMT: consumo total del producto PRO11.
+-   NETPRICE_PRO12_AMT: consumo total del producto PRO12.
+-   NETPRICE_PRO13_AMT: consumo total del producto PRO13.
+-   NETPRICE_PRO14_AMT: consumo total del producto PRO14.
+-   NETPRICE_PRO15_AMT: consumo total del producto PRO15.
+-   NETPRICE_PRO16_AMT: consumo total del producto PRO16.
+-   NETPRICE_PRO17_AMT: consumo total del producto PRO17.
+-   name: oficina del municipio de Londres a la que pertenece.
+
+En función de los datos de este fichero y del SHP /data/London_sports hay que resolver los siguientes
+
+1.  La empresa tiene actualmente 33 sucursales en Londres, una por distrito, y ante la falta de rentabilidad necesita cerrar tres de estas oficinas. Ha decidido que lo hará con aquellas que tengan menor volumen de negocio (suma del consumo de todos los productos) de clientela menor de 55 años (ya que considera que, con sus servicios de banca electrónica, este tipo de clientes estarían cubiertos).
+
+2.  Quiere saber, para cada uno de los distritos cerrados, si hay alguna oficina u oficinas ubicadas en un distrito cercano a las que pueda derivar a los clientes en caso de necesidad. Para ello, se considerará que las oficinas están geoposicionadas en el centro de los correspondientes distritos.
+
+**Se pide**, por tanto, responder a estas dos cuestiones y la entrega de:
+
+-   El correspondiente script R generado para su resolución.
+-   Un documento tipo .doc, con formato similar al del apartado "VIII. Un tutorial de análisis de comportamiento del consumidor mediante R", que muestre los pasos seguidos para su resolución. Si te resulta útil, genera mapas descriptivos que permitan justificar estas decisiones ante el banco.
+
+```{r}
+# https://aprender-uib.github.io/AprendeR1/
+# https://aprender-uib.github.io/AprendeR2/extras-de-r-markdown.html
+
+# Primeras acciones..
+rm(list = ls()) # Eliminar todas las variables creadas del Enviroment..
+# Cambia el directorio base para este script..
+setwd("C:/Users/0016571/Documents/RGA_Profresional/Master BigData - BAnalytics/Ejercicios/Modulo9/CasoPractico_05/RSpatialTutorial/")
+getwd()
+
+```
+
+```{r message=TRUE, warning=FALSE}
+# Cargar Librerias...
+library(dplyr)
+library(rgdal)
+library(rgeos)
+library(tmap)
+library(OpenStreetMap)
+# library(ggmap)
+
+```
+
+## Obtención de los datos.
+ - Analisis y priemeras observaciones sobre los datos.
+```{r}
+
+# Obtención de los datos..
+# - Datos geospatciales de londres..
+# data_gs_londres <- readOGR(dsn = "data", layer = "london_sport")
+data_gs_londres <- readOGR(dsn = "data", layer = "london_sport")
+
+# - datos de clientes de las sucursales bancarias ".csv"
+data_bank <- read.csv2("data/londonCustomer.csv")
+
+head(data_gs_londres)
+# str(data_gs_londres) # Objeto espacial, no visualizar es muy grande
+head(data_bank)
+str(data_bank)
+summary(data_bank)
+
+```
+
+```{r}
+unique(data_bank$name) # Obtenemos los 33 distritos de londres
+table(data_bank$name) # cuenta de las filas agrupadas por "name"(nombre de zonas londres), o distrito de cada banco
+```
+## Tratamiento sobre los datos Espaciales y NO espaciales.
+ - Selección de los datos en función del objetivo.
+ - Visualización de los datos seleccionados.
+```{r}
+# Seleccionar los bancos que van a ser cerrados, es decir, los 3 que menos acumulado de suma de productos consumidos por clientes menores a 55 años..
+
+data_bank_select <- data_bank[data_bank$AGE < 55, ]
+dim(data_bank)
+dim(data_bank_select)
+
+# Creamos un nuevo campo con la suma de gastos en productos u operaciones de cada cliente..
+data_bank_select$ACUM_CONSUMO <- data_bank_select$NETPRICE_PRO11_AMT +
+                                 data_bank_select$NETPRICE_PRO12_AMT +
+                                 data_bank_select$NETPRICE_PRO13_AMT +
+                                 data_bank_select$NETPRICE_PRO14_AMT +
+                                 data_bank_select$NETPRICE_PRO15_AMT +
+                                 data_bank_select$NETPRICE_PRO16_AMT +
+                                 data_bank_select$NETPRICE_PRO17_AMT
+
+head(data_bank_select)
+
+# AGRUPAR POR NAME (zona londres) Y TOTALIZAR POR EL NUEVO CAMPO, PARA LUEGO ORDENARLO POR ESTE DE < A >
+data_bank_select %>% group_by(name) %>% count(wt = ACUM_CONSUMO)
+data_bank_select %>% group_by(CONTACT_ID, name) %>% summarise(name, sum(ACUM_CONSUMO))
+
+# Queremos recuperar los nombres de las zonas de londres("name"), que su total de operaciones de sus clientes son las 3 más bajas...
+# Creamos un objeto tabla con los datos agrupados por "name"
+data_bank_select_gb <- group_by(data_bank_select, name)
+# data_bank_select_gb
+# Creamos un objeto tabla que totalice la columna nueva, y la renombbramos
+data_bank_select_gb_sum <- summarise(data_bank_select_gb, totalVentas = sum(ACUM_CONSUMO))
+# Ordenar la tabla entera por un campo
+data_bank_select_gb_sum_order <- data_bank_select_gb_sum[order(data_bank_select_gb_sum$totalVentas), ]
+
+data_bank_select_gb_sum_order
+
+# Observamos las 3 zonas londinenses donde el total de operaciones de los clientes es la menor...
+data_bank_select_gb_sum_order[1:3, ]
+data_bank_select_gb_sum_order[1:3, "name"]
+
+
+```
+
+## Visualización 1, geoespacial de los objetos y formas seleccionadas en función del objetivo.
+```{r}
+# https://www.datanalytics.com/libro_r/
+# https://lamfo-unb.github.io/2017/06/03/Vizualization-and-exploration-of-Spatial-data-in-R/
+
+# Representación grafica de los 3 distritos londinense donde menos operaciones bancarias se han realizado...y agregando un radio de influecia, para decidir a que nuevas sucursales se derivarán los clientes de las sucursales a cerrar.
+
+plot(data_gs_londres, col = "lightgrey")
+
+# Apartir de las 3 zonas analizadas , crear un objeto "logical", que indicará que zonas hay que aplicarle los parametros de visualización para destacarlos en el mapa...
+sel <- data_gs_londres$name == as.character(data_bank_select_gb_sum_order[1, "name"]) |
+       data_gs_londres$name == as.character(data_bank_select_gb_sum_order[2, "name"]) |
+       data_gs_londres$name == as.character(data_bank_select_gb_sum_order[3, "name"])
+
+sel1 <- data_gs_londres$name == as.character(data_bank_select_gb_sum_order[1, "name"])
+sel2 <- data_gs_londres$name == as.character(data_bank_select_gb_sum_order[2, "name"])
+sel3 <- data_gs_londres$name == as.character(data_bank_select_gb_sum_order[3, "name"])
+
+# Obtenemos los centros de las zonas para dibujar un punto..
+centros_zonas1 <- gCentroid(data_gs_londres[sel1, ])
+centros_zonas2 <- gCentroid(data_gs_londres[sel2, ])
+centros_zonas3 <- gCentroid(data_gs_londres[sel3, ])
+
+plot(data_gs_londres[sel, ], col = "turquoise", add = TRUE)
+points(centros_zonas1, cex = 1, pch = 19 )
+points(centros_zonas2, cex = 1, pch = 19)
+points(centros_zonas3, cex = 1, pch = 19)
+
+# Creamos un radio de 5000metrs y 8000mtrs alrededor del centro geografico de cada zona
+radio_buffer1 <- gBuffer(spgeom = centros_zonas1, width = 5000)
+radio_buffer2 <- gBuffer(spgeom = centros_zonas2, width = 5000)
+radio_buffer3 <- gBuffer(spgeom = centros_zonas3, width = 8000)
+
+# data_geospa_central <- data_gs_londres[radio_buffer1, ]
+
+plot(radio_buffer1, add = TRUE )
+plot(radio_buffer2, add = TRUE )
+plot(radio_buffer3, add = TRUE )
+
+
+
+
+```
+
+## Visualización 2, geoespacial de los objetos y formas seleccionadas en función del objetivo.
+```{r fig.width=8, fig.height=8}
+# http://rstudio-pubs-static.s3.amazonaws.com/156384_652a45e5c8d04003ace70eb515f0c8ea.html
+
+# Visualizar todas las ubicacioens de los centros o los puntos de los municipios de londres, sobre el mapa visualizado anteriormente destacando el centro y los radios de influencia de 5000 MTRS y 8000 MTRS..
+ 
+plot(data_gs_londres, col = "lightgrey")
+plot(data_gs_londres[sel, ], col = "turquoise", add = TRUE)
+points(centros_zonas1, cex = 2, pch = 19 )
+points(centros_zonas2, cex = 2, pch = 19)
+points(centros_zonas3, cex = 2, pch = 19)
+plot(radio_buffer1, add = TRUE, lwd = 2)
+plot(radio_buffer2, add = TRUE, lwd = 2)
+plot(radio_buffer3, add = TRUE, lwd = 2)
+
+# Visualizar todas las ubicaciones del centro de cada municipio londinense donde hay una sucursal
+# puntos_centrales_zonas <- gCentroid(data_gs_londres, byid = TRUE)
+# points(puntos_centrales_zonas, cex = 0.5, pch = 19)
+
+points(gCentroid(data_gs_londres, byid = TRUE), cex = 1, pch = 19)
+
+text(coordinates(data_gs_londres[sel, ]), c(data_gs_londres$name[sel]), adj = -0.1)
+
+
+```
+
+## Visualización 3, geoespacial de los objetos y formas seleccionadas en función del objetivo.
+```{r fig.width=8, fig.height=8}
+# http://www.nickeubank.com/wp-content/uploads/2015/10/RGIS3_MakingMaps_part1_mappingVectorData.html
+# https://slcladal.github.io/maps.html
+# http://zevross.com/blog/2017/06/19/tips-and-tricks-for-working-with-images-and-figures-in-r-markdown-documents/
+# https://bookdown.org/nicohahn/making_maps_with_r5/docs/introduction.html
+# https://rpubs.com/rubenfbc/mapa_coordenadas
+
+
+# Seleccionar las ubicaciones geograficas dentro del radio de influencia configurado para cada sucursal que va a ser cerrada.
+# - hay que obtener un vector lógico con los municipios que cumplen dicha condición, en este caso 3...
+bff1 <- c(gWithinDistance(centros_zonas1, gCentroid(data_gs_londres, byid = TRUE), dist = 5000, byid = T))
+bff2 <- c(gWithinDistance(centros_zonas2, gCentroid(data_gs_londres, byid = TRUE), dist = 5000, byid = T))
+bff3 <- c(gWithinDistance(centros_zonas3, gCentroid(data_gs_londres, byid = TRUE), dist = 8000, byid = T))
+
+# Pintamos el mapa anterior, y cuidamos el orden de los objetos a pintar en función de superponer unos sobre otros 
+plot(data_gs_londres, col = "lightgrey")
+plot(data_gs_londres[sel, ], col = "turquoise", add = TRUE)
+
+# radios de influencia..
+plot(radio_buffer1, add = TRUE, lwd = 2)
+plot(radio_buffer2, add = TRUE, lwd = 2)
+plot(radio_buffer3, add = TRUE, lwd = 2)
+
+# Se añaden al mapa solo las ubicaciones de los centros de los municipios que cumplen la condición
+points(gCentroid(data_gs_londres[bff1, ], byid = TRUE), cex = 1.5, pch = 19, col = "orange")
+points(gCentroid(data_gs_londres[bff2, ], byid = TRUE), cex = 1.5, pch = 19, col = "green")
+points(gCentroid(data_gs_londres[bff3, ], byid = TRUE), cex = 1.5, pch = 19, col = "yellow")
+
+# Centros de los radios de influencia..
+points(centros_zonas1, cex = 2, pch = 19, col = "black")
+points(centros_zonas2, cex = 2, pch = 19, col = "black")
+points(centros_zonas3, cex = 2, pch = 19, col = "black")
+
+```
+
+## Visualización 4, geoespacial de los objetos y formas seleccionadas en función del objetivo.
+```{r fig.width=8, fig.height=8}
+# Pintamos con diferentes colores las zonas dentro del radio de influencia de cada sucursal que va a ser cerrada, y todos los puntos de ubicación de las zonas para ver con claridad cuales estan dentro del radio..
+
+plot(data_gs_londres, col = "lightgrey")
+plot(data_gs_londres[bff1, ], add = T, col = "orange")
+plot(data_gs_londres[bff2, ], add = T, col = "green")
+plot(data_gs_londres[bff3, ], add = T, col = "yellow")
+plot(data_gs_londres[sel, ], col = "turquoise", add = TRUE)
+points(centros_zonas1, cex = 1, pch = 19 )
+points(centros_zonas2, cex = 1, pch = 19)
+points(centros_zonas3, cex = 1, pch = 19)
+plot(radio_buffer1, add = TRUE, lwd = 2)
+plot(radio_buffer2, add = TRUE, lwd = 2)
+plot(radio_buffer3, add = TRUE, lwd = 2)
+
+# Pintar todos los demás puntos para ver claramente los que estan dentro del radio de influencia
+points(gCentroid(data_gs_londres, byid = TRUE), cex = 0.5, pch = 19)
+
+ 
+```
+
+## Visualización 5, geoespacial de los objetos y formas seleccionadas en función del objetivo.
+```{r fig.height=8, fig.width=8}
+# Visualizar los nombre de las ciudades seleccionadas
+
+plot(data_gs_londres, col = "lightgrey")
+plot(data_gs_londres[bff1, ], add = T, col = "orange")
+plot(data_gs_londres[bff2, ], add = T, col = "green")
+plot(data_gs_londres[bff3, ], add = T, col = "yellow")
+plot(data_gs_londres[sel, ], col = "turquoise", add = TRUE)
+points(centros_zonas1, cex = 1, pch = 19)
+points(centros_zonas2, cex = 1, pch = 19)
+points(centros_zonas3, cex = 1, pch = 19)
+plot(radio_buffer1, add = TRUE, lwd = 2)
+plot(radio_buffer2, add = TRUE, lwd = 2)
+plot(radio_buffer3, add = TRUE, lwd = 2)
+
+#text(coordinates(cent_data_geospa), "Londres\nCentral")
+#text(coordinates(data_gs_londres[bff1, ]), "ciudad")
+text(coordinates(data_gs_londres[bff1, ]), c(data_gs_londres$name[bff1]))
+text(coordinates(data_gs_londres[bff2, ]), c(data_gs_londres$name[bff2]))
+text(coordinates(data_gs_londres[bff3, ]), c(data_gs_londres$name[bff3]))
+
+legend("topright", c(data_gs_londres$name[bff3]), box.col = "yellow", box.lwd = 2)
+legend("top", c(data_gs_londres$name[bff2]), box.col = "green", box.lwd = 2)
+legend("topleft", c(data_gs_londres$name[bff1]), box.col = "orange", box.lwd = 2)
+```
+
+## Datos para la toma de la decisión final.
+```{r}
+print("Municipios dentro del radio de influencia de 5000mtrs, donde derivar a los clientes de la sucursal localizada en la 'Ciudad de londres'")
+data_gs_londres$name[bff1]
+print("Municipios dentro del radio de influencia de 5000mtrs, donde derivar a los clientes de la sucursal localizada en  de 'Wandsworth'")
+data_gs_londres$name[bff2]
+print("Municipios dentro del radio de influencia de 8000mtrs, donde derivar a los clientes de la sucursal localizada en la 'Ealing'")
+data_gs_londres$name[bff3]
+dim(data_gs_londres$name)
+class(data_gs_londres$name)
+# data_gs_londres$name[bff1, ]
+
+```
