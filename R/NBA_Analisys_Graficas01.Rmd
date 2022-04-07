@@ -1,0 +1,473 @@
+---
+title: "NBA Analitycs 01"
+output: html_notebook
+---
+
+### Analisys NBA stats (Library(nbastatR))
+
+```{r}
+#Documentacion de internet...
+# https://r-graph-gallery.com/spider-or-radar-chart.html
+# https://r-charts.com/es/ranking/radar-chart/
+# https://uvadoc.uva.es/bitstream/handle/10324/50487/TFG-G5298.pdf?sequence=1
+  # https://ftp.cixug.es/CRAN/ Oficina de software libre (CIXUG)
+  # https://cran.rediris.es/ Spanish National Research Network, Madrid
+# https://www.datanovia.com/en/blog/beautiful-radar-chart-in-r-using-fmsb-and-ggplot-packages/
+# NBA Api
+# http://asbcllc.com/nbastatR/reference/index.html
+
+```
+
+
+```{r}
+# Install packges..
+# install.packages("nbastatR")
+# devtools::install_github("abresler/nbastatR")
+install.packages("NBAloveR")
+install.packages("tidyverse")
+install.packages("fmsb") # Para graficas tipo radar
+install.packages("devtools")
+
+devtools::install_github("abresler/nbastatR")
+
+
+```
+
+```{r}
+# Cargar librerias
+library(NBAloveR)
+library(tidyverse)
+#library(tdplyr)
+library(fmsb)
+
+rm(list = ls()) # Borrar todas la variables del entorno de desarrollo..
+
+```
+
+
+```{r fig.width=8, fig.height=8}
+# Ejemplo grafica radar simple...
+
+# Demo data
+exam_scores <- data.frame(
+    row.names = c("Student.1", "Student.2", "Student.3"),
+      Biology = c(7.9, 3.9, 9.4),
+      Physics = c(10, 20, 0),
+        Maths = c(3.7, 11.5, 2.5),
+        Sport = c(8.7, 20, 4),
+      English = c(7.9, 7.2, 12.4),
+    Geography = c(6.4, 10.5, 6.5),
+          Art = c(2.4, 0.2, 9.8),
+  Programming = c(0, 0, 20),
+        Music = c(20, 20, 20)
+)
+exam_scores
+# Define the variable ranges: maximum and minimum
+max_min <- data.frame(
+  Biology = c(20, 0), Physics = c(20, 0), Maths = c(20, 0),
+  Sport = c(20, 0), English = c(20, 0), Geography = c(20, 0),
+  Art = c(20, 0), Programming = c(20, 0), Music = c(20, 0)
+)
+rownames(max_min) <- c("Max", "Min")
+
+# Bind the variable ranges to the data
+df <- rbind(max_min, exam_scores)
+df
+
+student1_data <- df[c("Max", "Min", "Student.1"), ]
+radarchart(student1_data)
+student1y2_data <- df[c("Max", "Min", "Student.1", "Student.2"), ]
+radarchart((student1y2_data))
+
+str
+```
+
+
+```{r fig.width=8, fig.height=8}
+# Función para pintar una gráfica tipo radar con varios factores...
+
+radarchart_good01 <- function(data, color = "#00AFBB", vlabels = colnames(data), vlcex = 0.7, caxislabels = NULL, title = NULL){
+  radarchart(
+    data, axistype = 1,
+    # Customize the polygon
+    pcol = color, pfcol = scales::alpha(color, 0.5), plwd = 2, plty = 1,
+    # Customize the grid
+    cglcol = "grey", cglty = 1, cglwd = 0.8,
+    # Customize the axis
+    axislabcol = "grey", 
+    # Variable labels
+    vlcex = vlcex, vlabels = vlabels,
+    caxislabels = caxislabels, title = title
+  )
+  legend(
+  x = "bottomleft", legend = rownames(df_vs3[-c(1,2),]), horiz = TRUE,
+  bty = "n", pch = 20 , col = c("#00AFBB", "#E7B800", "#FC4E07"),
+  text.col = "black", cex = 1, pt.cex = 1.5
+  )
+}
+
+```
+
+
+```{r fig.width=8, fig.height=8}
+
+radarchart_good01(df, color = c("#00AFBB", "#E7B800", "#FC4E07"), caxislabels = c(0, 5, 10, 15, 20))
+
+```
+
+```{r}
+# Obtener datos de stadisticas acumuladas de los equipos NBA..
+
+library(nbastatR) # libreria de scrappeo de estadisticas NBA
+library(future)
+plan(multiprocess)
+Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2) # Variable para aumentar el maximo de registros a obtener...
+df_gamelog <- game_logs(seasons = 2022)
+
+```
+
+```{r}
+
+colnames(df_gamelog)
+head(df_gamelog)
+
+df_gamelog[df_gamelog$idGame == 22100001, ]
+```
+
+```{r}
+
+tabla_teams <- teams_annual_stats(all_active_teams = T,
+                                  modes = c("Totals"),
+                                  return_message = TRUE,
+                                  nest_data =F)
+
+```
+
+```{r}
+
+teams_tabla <- teams_tables(teams = c("Brooklyn Nets", "New York Knicks"),
+ seasons = 2022, tables = c("splits", "shooting"), measures = "Base", modes = c("PerGame", "Totals"))
+
+
+```
+```{r fig.width=7, fig.height=7}
+# https://stackoverflow.com/questions/23206354/legend-with-radarchart-in-loop
+# Esta funcion con estos parametros, trae estadisticas basicas de los 30 equipos en la temporada elegida..
+
+team_bkl <- teams_seasons_info(teams = "Brooklyn Nets", seasons = 2022, season_types = "Regular Season")
+team_bkl[c(1,3),c(2,19,21,23,25)]
+
+# Seleccionamos 2 equipos(2 filas), y las columnas con valores numericos para representar graficamente
+df_vs <- team_bkl[c(1,3),c(2,19,21,23,25)]
+df_vs <- as.data.frame(df_vs) # convertir en dataframe
+
+rownames(df_vs) <- df_vs$slugTeam # la columna de iniciales de ewuipo la convertimos en rownames
+df_vs
+df_vs2 <- df_vs[ , -1] # eliminamos la columna iniciales equipos
+
+# necesario para el grafico radar tener 2 rownames con el max y el min
+df_vs2[nrow(df_vs)+1, ] <- c(120,120,120,120)
+df_vs2[nrow(df_vs2)+1, ] <- c(0,0,0,0)
+df_vs2
+row.names(df_vs2)[3] <- "Max"
+row.names(df_vs2)[4] <- "Min"
+df_vs2
+
+# cambiamos la posición de max y min a las 2 primeras filas..
+df_vs3 <- df_vs2[c(3,4,2,1), ]
+df_vs3
+
+
+op <- par(mar = c(1, 2, 2, 2))
+
+radarchart(df_vs3)
+radarchart_good01(df_vs3, color = c("#00AFBB", "#E7B800", "#FC4E07"), caxislabels = c(0, 25, 50, 75, 115))
+
+par(op)
+```
+
+```{r}
+library(ggplot2)
+
+kpis = c("Posesion", "Tiros por gol\n a favor", "Tiros por gol \n en contra", "Juego directo", "Centros", "Agresividad",
+"Inicio \n de juego (Portero)")
+percentagedata = c(18.03, -6.27, 11.67, -40.04, 6.19, -9.30, 95.98)
+clubname = "Atletico Villalpando"
+ 
+ mydata <- structure(
+  list(Category = structure(1:7,
+        .Label = kpis,
+        class = "factor"),
+        Percentage = percentagedata
+  ),
+ .Names = c("Category", "Percentage"),
+ row.names = c(NA, 7L),
+ class = "data.frame"
+)
+ 
+ggplot(mydata) +
+ geom_bar(aes(x = Category, y = pmin(200, 100 + Percentage)),
+fill = "#004da8", stat = "identity", width = 1) +
+ geom_hline(yintercept = seq(0,200,by = 25), linetype =
+"dashed", color = "#e9e9e9", size = 0.5) +
+ geom_vline(xintercept = seq(0.5, 7.5, by = 1), color =
+"#c9c9c9", size = 0.5) +
+ geom_hline(yintercept = 100, color = "#a9a9a9", size = 0.75) +
+ geom_hline(yintercept = 200, color = "#a9a9a9", size = 0.75) +
+ coord_polar() +
+ theme_minimal() +
+ labs(x = NULL, y = NULL) +
+ labs(title = clubname) +
+ theme(plot.title = element_text(hjust = 0.5, size = 20,
+color = "#a9a9a9"),
+ plot.subtitle = element_text(vjust = 0, hjust = 0.5,
+size = 12, color = "#a9a9a9"),
+ axis.text.y = element_blank(),
+ legend.position = "none",
+ panel.grid = element_blank(),
+ axis.text.x = element_blank()) +
+ geom_text(aes(x = Category, y = 290, label = sprintf("%s \n
+%1.2f%%", Category, Percentage)), size = 4, color = "#a9a9a9")
+
+
+
+```
+```{r}
+
+library(nbastatR)
+library(future)
+library(tidyverse)
+plan(multiprocess)
+Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2) # Variable para aumentar el maximo de registros a obtener...
+
+#df_players_table <- players_tables(players = "", modes = "Totals", measures = "Advanced", seasons = 2022)
+#df_player_stats <- teams_players_stats(seasons = 2022, types = c("player", "team"), season_types = "Regular Season",
+#measures = "Advanced", 
+#modes = "Totals",
+#tables = c("general", "defense", "clutch", "hustle", "shots", "shot locations"))
+
+
+```
+```{r}
+# Scrapin a pelo
+library(rvest)
+library(lubridate)
+
+
+url <- "https://www.basketball-reference.com/leagues/NBA_2022_advanced.html#advanced_stats"
+
+df_web <- read_html(url)
+
+head(df_web)
+
+```
+
+```{r}
+# https://github.com/bobbyingram/bballR
+# Package bballR, TESTEANDO funciones de scrapeo para tablas de stats advanced players...
+
+# devtools::install_github("bobbyingram/bballR")
+
+
+library(bballR)
+library(tidyverse)
+#library(tdplyr)
+library(fmsb)
+
+# https://www.kaggle.com/code/danielsou/cisc7201-nba-data-analysis-report/notebook#
+# NBA's efficiency rating: Python
+# (PTS + REB + AST + STL + BLK − ((FGA − FGM) + (FTA − FTM) + TO))
+# performance_selected['EFF'] = Incluir en un dataframe
+#average_eff = (
+#    performance_selected['PTS'].mean() + 
+#    performance_selected['TRB'].mean() + 
+#    performance_selected['AST'].mean() + 
+#    performance_selected['STL'].mean() + 
+#    performance_selected['BLK'].mean() - (
+#        performance_selected['FGA'].mean() -
+#        performance_selected['FG'].mean()
+#    ) + (
+#        performance_selected['FTA'].mean() -
+#        performance_selected['FT'].mean()
+#    ) +
+#    performance_selected['TOV'].mean()
+#)
+
+# https://www.kaggle.com/code/agilesifaka/historic-nba-drafting-game-and-player-analysis/notebook
+# Se utiliza la funcion que recupera la tabla de "https://www.basketball-reference.com/leagues/NBA_2022_advanced.html", pestaña 
+# "Advanced"...
+# - Recupera todos los jugadores de la temporada seleccionada, hasta los lesionados,traspasados
+# - Incluir un filtro para solo recuperar los jugadores con más de 5 partidos jugados y filtrarlos por PER descendentemente...
+
+df_players_advanced <- scrape_season_advanced(year = 2022)
+
+str(df_players_advanced)
+head(df_players_advanced)
+
+df_players_advanced[order(df_players_advanced$PER, decreasing = TRUE), ] %>% head()
+
+df_players_advanced[df_players_advanced$G > 5, ] %>% head()
+
+df_players_advanced %>% arrange(desc(PER)) %>% filter(G >5) %>% head()
+
+
+
+```
+
+
+```{r}
+# Preparar datos para grafico radar de comparación de 2 jugadores..
+
+compare_players <- df_players_advanced[c(1,2), c(2,10,13:20)] # Selección de 2 jugadores y columnas a representar en grafico
+compare_players
+
+compare_players <- as.data.frame(compare_players) # Convertimos en dataframe la tabla tibble
+
+# Asignar la columna Player como rownames, y elimirala del dataframe
+rownames(compare_players) <- compare_players$Player # la columna de nombre jugadores la convertimos en rownames
+compare_players
+compare_players2 <- compare_players[ , -1]
+compare_players2
+
+# necesario para el grafico radar tener 2 rownames con el max y el min
+compare_players2[nrow(compare_players2)+1, ] <- c(60,60,60,60,60,60,60,60,60)
+compare_players2[nrow(compare_players2)+1, ] <- c(0,0,0,0,0,0,0,0,0)
+compare_players2
+row.names(compare_players2)[3] <- "Max"
+row.names(compare_players2)[4] <- "Min"
+compare_players2
+
+# cambiamos la posición de max y min a las 2 primeras filas..
+compare_players2 <- compare_players2[c(3,4,2,1), ]
+compare_players2
+
+
+# Crear una función de entrada de parametros a la funcion radarchart()...
+radarchart_good02 <- function(data, color = "#00AFBB", vlabels = colnames(data), vlcex = 0.7, caxislabels = NULL, title = NULL){
+  
+  # Sacar la leyenda fura del grafico...
+  # Guardamos los parámetros gráficos actuales
+  # opar <- par(no.readonly = TRUE)
+  # Cambiar los márgenes del gráfico (el cuarto es el margen derecho)
+  # par(mar = c(3, 3, 4, 11))
+  
+  radarchart(
+    data, axistype = 1,
+    # Customize the polygon
+    pcol = color, pfcol = scales::alpha(color, 0.5), plwd = 2, plty = 1,
+    # Customize the grid
+    cglcol = "grey", cglty = 1, cglwd = 0.8,
+    # Customize the axis
+    axislabcol = "grey", 
+    # Variable labels
+    vlcex = vlcex, vlabels = vlabels,
+    caxislabels = caxislabels, title = title
+  )
+  legend(
+  x = "topright", inset = c(-0.01, 0), legend = str_c(rownames(compare_players2[-c(1,2), ])," AST%: ",compare_players2[-c(1,2), 1]), horiz = FALSE,
+  bty = "n", pch = 20 , col = c("#00AFBB", "#E7B800", "#FC4E07"),
+  text.col = "black", cex = 0.8, pt.cex = 1.5 #, xpd = TRUE
+  )
+}
+
+# Cambiamos el maximo de la fila Max
+compare_players3 <- compare_players2
+compare_players3[1, ] <- c(25,25,25,25,25,25,25,25,25)
+
+compare_players2
+compare_players3
+radarchart_good02(compare_players2, color = c("#00AFBB", "#E7B800", "#FC4E07"), caxislabels = c(0, 10, 25, 50, 65))
+radarchart_good02(compare_players3, color = c("#00AFBB", "#E7B800", "#FC4E07"), caxislabels = c(0, 2.5, 5, 10, 25))
+
+```
+
+
+```{r fig.width=6, fig.height=6}
+# https://www.sportingnews.com/es/nba/news/estadistica-avanzada-diccionario-terminos-que-es-que-sirve-nba-analytics-sabermetrics/1gc73ududvomy1s3mqiahg238c
+
+# Comparar los 2 primeros jugadores con mas PER
+
+#compare_players <- df_players_advanced[c(df_players_advanced$Player == "Nikola Jokic",df_players_advanced$Player == "Giannis Antetokounmpo"), c(2,10,13:20)] # Selección de 2 jugadores y columnas a representar en grafico
+
+#df_players_advanced %>% arrange(desc(PER)) %>% filter(G >5) %>% head(2)
+
+compare_players <- df_players_advanced %>% arrange(desc(PER)) %>% filter(G >5) %>% select(c(2,10,13:20)) %>% head(2)
+compare_players
+
+compare_players <- as.data.frame(compare_players) # Convertimos en dataframe la tabla tibble
+
+# Asignar la columna Player como rownames, y elimirala del dataframe
+rownames(compare_players) <- compare_players$Player # la columna de nombre jugadores la convertimos en rownames
+compare_players
+compare_players2 <- compare_players[ , -1]
+compare_players2
+
+# necesario para el grafico radar tener 2 rownames con el max y el min
+compare_players2[nrow(compare_players2)+1, ] <- c(55,55,55,55,55,55,55,55,55)
+compare_players2[nrow(compare_players2)+1, ] <- c(0,0,0,0,0,0,0,0,0)
+compare_players2
+row.names(compare_players2)[3] <- "Max"
+row.names(compare_players2)[4] <- "Min"
+compare_players2
+
+# cambiamos la posición de max y min a las 2 primeras filas..
+compare_players2 <- compare_players2[c(3,4,2,1), ]
+compare_players2
+
+# Cambiamos el maximo de la fila Max
+compare_players3 <- compare_players2
+compare_players3[1, ] <- c(25,25,25,25,25,25,25,25,25)
+
+radarchart_good02(compare_players2, color = c("#00AFBB", "#E7B800", "#FC4E07"), caxislabels = c(0, 10, 25, 40, 55))
+radarchart_good02(compare_players3, color = c("#00AFBB", "#E7B800", "#FC4E07"), caxislabels = c(0, 2.5, 5, 10, 25))
+
+on.exit(par(opar))
+
+
+```
+```{r fig.height=5, fig.width=10}
+
+# https://stackoverflow.com/questions/31569049/r-replacing-x-axis-labels-with-row-names-in-a-plot
+
+matplot(compare_players2, type = "l")
+
+#compare_players4 <- compare_players2 %>% t()
+
+layout(matrix(c(1,2),nrow=1), width=c(10,5)) 
+par(mar=c(5,4,4,0)) #No margin on the right side
+matplot(compare_players2 %>% t(), type = "l")
+axis(1, at=1:nrow(compare_players4), labels=rownames(compare_players4),las=2)
+par(mar=c(6,0,4,2)) #No margin on the left side
+plot(c(0,1),type="n", axes=F, xlab="", ylab="")
+legend("center", rownames(compare_players2),col=seq_len(ncol(compare_players2)),cex=0.8,fill=seq_len(ncol(compare_players2)))
+
+compare_players2 %>% t()
+compare_players3
+compare_players4
+
+nrow(compare_players4)
+rownames(compare_players4)
+
+layout(matrix(c(1,2),nrow=1), width=c(10,5)) 
+par(mar=c(5,4,4,0)) #No margin on the right side
+matplot(compare_players4, pch = 10, xaxt = "n", lty = 1,
+        ylab = "Expression Value", type = "o", lwd = 3,)
+axis(1, at = 1:nrow(compare_players4), labels = rownames(compare_players4), cex.axis = 0.7)
+par(mar=c(6,0,4,2)) #No margin on the left side
+plot(c(0,1),type="n", axes=F, xlab="", ylab="")
+legend("center", colnames(compare_players4),col=seq_len(ncol(compare_players4)),cex=0.8,fill=seq_len(ncol(compare_players4)))
+
+
+```
+
+
+```{r}
+# App Web dearrollada en github
+
+#packages = c("shiny", "tidyverse", "hexbin")
+#install.packages(packages, repos = "https://cran.rstudio.com/")
+library(shiny)
+runGitHub("ballr", "toddwschneider")
+
+```
+
